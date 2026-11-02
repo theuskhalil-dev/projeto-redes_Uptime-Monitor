@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Uptime Monitor</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #eee; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #00e5ff; text-align: center; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .status-box { display: flex; justify-content: space-around; margin-top: 20px; }
+        .metric { text-align: center; padding: 15px; background: #2d2d2d; border-radius: 8px; min-width: 120px; }
+        .metric .val { font-size: 24px; font-weight: bold; margin-top: 5px; }
+        .ok { color: #00e676; }
+        .alert { color: #ff1744; animation: pulse 1s infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #2d2d2d; }
+        .btn { background: #00e5ff; color: #000; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        input { padding: 8px; background: #2d2d2d; border: 1px solid #444; color: #fff; border-radius: 5px; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📡 Uptime Monitor Dashboard</h1>
+        
+        <div class="card">
+            <h3>Conexão</h3>
+            <p>Status: <span id="connStatus" style="color:red">Desconectado</span></p>
+            <input type="text" id="dashId" value="dashboard_main" placeholder="Dashboard ID">
+            <button class="btn" onclick="conectar()">Conectar</button>
+        </div>
+
+        <div class="card">
+            <h3>Monitoramento em Tempo Real</h3>
+            <div class="status-box" id="statusBox">
+                <div class="metric">
+                    <div>Site</div>
+                    <div class="val" id="sSite">-</div>
+                </div>
+                <div class="metric">
+                    <div>Status HTTP</div>
+                    <div class="val" id="sStatus">-</div>
+                </div>
+                <div class="metric">
+                    <div>Latência (ms)</div>
+                    <div class="val" id="sLatency">-</div>
+                </div>
+                <div class="metric">
+                    <div>Alerta</div>
+                    <div class="val" id="sAlert">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Histórico Recente</h3>
+            <button class="btn" onclick="carregarHistorico()">Atualizar</button>
+            <table id="histTable">
+                <tr><th>Horário</th><th>Status</th><th>Latência</th><th>Alerta</th></tr>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        function conectar() {
+            const id = document.getElementById('dashId').value;
+            ws = new WebSocket(`ws://${location.host}/ws`);
+            ws.onopen = () => {
+                document.getElementById('connStatus').innerText = 'Conectado';
+                document.getElementById('connStatus').style.color = '#00e676';
+                ws.send(JSON.stringify({type: 'AUTH', role: 'dashboard', id: id, token: 'dash_token'}));
+            };
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'SITE_UPDATE') {
+                    document.getElementById('sSite').innerText = msg.site_id;
+                    const stEl = document.getElementById('sStatus');
+                    stEl.innerText = msg.status_code;
+                    stEl.className = 'val ' + (msg.status_code < 400 ? 'ok' : 'alert');
+                    
+                    const latEl = document.getElementById('sLatency');
+                    latEl.innerText = msg.latency_ms.toFixed(1);
+                    latEl.className = 'val ' + (msg.latency_ms < 500 ? 'ok' : 'alert');
+
+                    const alEl = document.getElementById('sAlert');
+                    alEl.innerText = msg.is_alert ? '⚠️ SIM' : '✅ NÃO';
+                    alEl.className = 'val ' + (msg.is_alert ? 'alert' : 'ok');
+                }
+            };
+            ws.onclose = () => {
+                document.getElementById('connStatus').innerText = 'Desconectado';
+                document.getElementById('connStatus').style.color = 'red';
+            };
+        }
+
+        async function carregarHistorico() {
+            try {
+                const resp = await fetch('/api/historico/site_01?limite=10');
+                const dados = await resp.json();
+                const table = document.getElementById('histTable');
+                table.innerHTML = '<tr><th>Horário</th><th>Status</th><th>Latência</th><th>Alerta</th></tr>';
+                dados.reverse().forEach(d => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${new Date(d.timestamp*1000).toLocaleTimeString()}</td>
+                        <td style="color:${d.status_code<400?'#00e676':'#ff1744'}">${d.status_code}</td>
+                        <td>${d.latency_ms.toFixed(1)} ms</td>
+                        <td>${d.is_alert ? '⚠️' : '✅'}</td>
+                    `;
+                    table.appendChild(tr);
+                });
+            } catch(e) { console.error(e); }
+        }
+        setInterval(carregarHistorico, 5000);
+    </script>
+</body>
+</html>
